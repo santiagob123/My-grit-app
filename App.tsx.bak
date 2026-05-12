@@ -1,0 +1,64 @@
+import React, { useEffect } from 'react';
+import { StatusBar } from 'expo-status-bar';
+import { AppNavigator } from './src/navigation';
+import { useAuthStore } from './src/store/useAuthStore';
+import { supabase } from './src/api/supabase';
+import { useHabitStore } from './src/store/useHabitStore';
+
+export default function App() {
+  const { setSession, setIsLoading } = useAuthStore();
+  const { habits, addHabit } = useHabitStore();
+
+  useEffect(() => {
+    // Initial Auth Check
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setIsLoading(false);
+    });
+
+    supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    // Seed mock data if empty
+    if (habits.length === 0) {
+      addHabit({
+        id: '1',
+        title: 'Meditación Matutina',
+        icon: '🧘',
+        color: '#AF52DE',
+        frequency: 'daily',
+        category: 'Mental',
+        streak: 5,
+        completed_today: false,
+      });
+      addHabit({
+        id: '2',
+        title: 'Lectura (20 min)',
+        icon: '📚',
+        color: '#FF9500',
+        frequency: 'daily',
+        category: 'Crecimiento',
+        streak: 12,
+        completed_today: true,
+      });
+      addHabit({
+        id: '3',
+        title: 'Entrenamiento HIIT',
+        icon: '💪',
+        color: '#FF3B30',
+        frequency: 'daily',
+        category: 'Físico',
+        streak: 3,
+        completed_today: false,
+      });
+    }
+  }, []);
+
+  return (
+    <>
+      <StatusBar style="light" />
+      <AppNavigator />
+    </>
+  );
+}

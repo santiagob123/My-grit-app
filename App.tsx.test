@@ -1,0 +1,11 @@
+import React from 'react';
+import { View, Text } from 'react-native';
+
+export default function App() {
+  return (
+    <View style={{ flex: 1, backgroundColor: 'black', alignItems: 'center', justifyContent: 'center' }}>
+      <Text style={{ color: 'white', fontSize: 24 }}>Grit App Test</Text>
+      <Text style={{ color: 'gray', marginTop: 10 }}>Si ves esto, el bundler funciona.</Text>
+    </View>
+  );
+}

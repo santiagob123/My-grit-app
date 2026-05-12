@@ -1,0 +1,4 @@
+/* global.css - Entry point for NativeWind v4 Tailwind styles */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
