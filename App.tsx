@@ -1,97 +1,60 @@
 import './global.css';
 import React, { useEffect } from 'react';
+import { View, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { AppNavigator } from './src/navigation';
 import { useAuthStore } from './src/store/useAuthStore';
 import { supabase } from './src/api/supabase';
-import { useHabitStore } from './src/store/useHabitStore';
 import { useThemeStore } from './src/store/useThemeStore';
 import { requestNotificationPermissions } from './src/services/notifications';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { useTheme } from './src/hooks/useTheme';
 
 export default function App() {
-  const { setSession, setIsLoading } = useAuthStore();
-  const { habits, addHabit } = useHabitStore();
+  const { setSession, setIsLoading, isLoading } = useAuthStore();
   const { mode } = useThemeStore();
 
   useEffect(() => {
-    // Request notification permissions on first launch
-    requestNotificationPermissions().then(granted => {
-      if (!granted) console.log('Notification permissions not granted');
-    });
+    // 1. Probar conexión
+    const testConnection = async () => {
+      const { error } = await supabase.from('profiles').select('count', { count: 'exact', head: true });
+      if (error) console.error('❌ Error Supabase:', error.message);
+      else console.log('✅ Supabase conectado.');
+    };
+    testConnection();
 
+    // 2. Permisos
+    requestNotificationPermissions();
+
+    // 3. Gestionar Sesión Real
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setIsLoading(false);
     });
-    supabase.auth.onAuthStateChange((_event, session) => {
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      setIsLoading(false);
     });
 
-    // Seed mock data only if store is empty
-    if (habits.length === 0) {
-      addHabit({
-        id: '1',
-        title: 'Meditación Matutina',
-        icon: '🧘',
-        color: '#BF5AF2',
-        frequency: 'daily',
-        category: 'Mental',
-        streak: 5,
-        completed_today: false,
-        type: 'boolean',
-        daily_target: 1,
-        current_count: 0,
-        unit: 'veces',
-      });
-      addHabit({
-        id: '2',
-        title: 'Tomar Agua',
-        icon: '💧',
-        color: '#0A84FF',
-        frequency: 'daily',
-        category: 'Salud',
-        streak: 12,
-        completed_today: false,
-        type: 'counter',
-        daily_target: 8,
-        current_count: 3,
-        unit: 'vasos',
-      });
-      addHabit({
-        id: '3',
-        title: 'Entrenamiento HIIT',
-        icon: '🏋️',
-        color: '#FF453A',
-        frequency: 'daily',
-        category: 'Físico',
-        streak: 3,
-        completed_today: false,
-        type: 'boolean',
-        daily_target: 1,
-        current_count: 0,
-        unit: 'veces',
-      });
-      addHabit({
-        id: '4',
-        title: 'Lectura',
-        icon: '📚',
-        color: '#FF9F0A',
-        frequency: 'daily',
-        category: 'Crecimiento',
-        streak: 7,
-        completed_today: false,
-        type: 'counter',
-        daily_target: 30,
-        current_count: 0,
-        unit: 'páginas',
-      });
-    }
+    return () => subscription.unsubscribe();
   }, []);
 
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="large" color="#0A84FF" />
+      </View>
+    );
+  }
+
   return (
-    <>
-      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
-      <AppNavigator />
-    </>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+        <AppNavigator />
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }

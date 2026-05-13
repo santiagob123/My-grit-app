@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  View, Text, SafeAreaView, ScrollView, TouchableOpacity, Modal,
+  View, Text, ScrollView, TouchableOpacity, Modal,
   TextInput, KeyboardAvoidingView, Platform, StyleSheet, Switch,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useHabitStore, Habit } from '../store/useHabitStore';
@@ -14,25 +15,17 @@ import { scheduleHabitReminder, cancelHabitReminder } from '../services/notifica
 const ICONS = ['🏋️', '📚', '💧', '🧘', '🏃', '🎯', '✍️', '🎸', '💤', '🥗', '🧠', '💊', '☕', '🚴', '🌿'];
 const COLORS = ['#0A84FF', '#32D74B', '#FF453A', '#FF9F0A', '#BF5AF2', '#64D2FF', '#FF2D55', '#FFD60A'];
 const UNITS = ['vasos', 'km', 'páginas', 'minutos', 'reps', 'litros', 'hrs', 'veces'];
-const HOURS = Array.from({ length: 24 }, (_, i) => i);
-const MINUTES = [0, 15, 30, 45];
+const HOURS_12 = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+const MINUTES_ALL = Array.from({ length: 60 }, (_, i) => i);
 const fmt = (n: number) => String(n).padStart(2, '0');
-
-const EMPTY_FORM = {
-  habitType: 'boolean' as 'boolean' | 'counter',
-  title: '',
-  selectedIcon: '🏋️',
-  selectedColor: '#0A84FF',
-  target: '8',
-  selectedUnit: 'vasos',
-  reminderEnabled: false,
-  reminderHour: 9,
-  reminderMinute: 0,
-};
 
 export const HabitsScreen = () => {
   const C = useTheme();
-  const { habits, addHabit, deleteHabit, updateHabit } = useHabitStore();
+  const { habits, addHabit, deleteHabit, updateHabit, fetchHabits } = useHabitStore();
+
+  useEffect(() => {
+    fetchHabits();
+  }, []);
 
   const [showModal, setShowModal] = useState(false);
   const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
@@ -44,8 +37,24 @@ export const HabitsScreen = () => {
   const [target, setTarget] = useState('8');
   const [selectedUnit, setSelectedUnit] = useState('vasos');
   const [reminderEnabled, setReminderEnabled] = useState(false);
-  const [reminderHour, setReminderHour] = useState(9);
+  
+  const [reminderHour, setReminderHour] = useState(8);
   const [reminderMinute, setReminderMinute] = useState(0);
+
+  const isPM = reminderHour >= 12;
+  const displayHour = reminderHour % 12 || 12;
+
+  const handleHourSelect = (h: number) => {
+    let newHour = h;
+    if (isPM && h < 12) newHour += 12;
+    if (!isPM && h === 12) newHour = 0;
+    setReminderHour(newHour);
+  };
+
+  const toggleAMPM = (toPM: boolean) => {
+    if (toPM && reminderHour < 12) setReminderHour(reminderHour + 12);
+    else if (!toPM && reminderHour >= 12) setReminderHour(reminderHour - 12);
+  };
 
   const openCreate = () => {
     setEditingHabit(null);
@@ -56,7 +65,7 @@ export const HabitsScreen = () => {
     setTarget('8');
     setSelectedUnit('vasos');
     setReminderEnabled(false);
-    setReminderHour(9);
+    setReminderHour(8);
     setReminderMinute(0);
     setShowModal(true);
   };
@@ -70,13 +79,15 @@ export const HabitsScreen = () => {
     setTarget(String(habit.daily_target));
     setSelectedUnit(habit.unit);
     setReminderEnabled(habit.reminder_enabled);
-    setReminderHour(habit.reminder_hour);
-    setReminderMinute(habit.reminder_minute);
+    const [h, m] = (habit.reminder_time || '08:00').split(':').map(Number);
+    setReminderHour(h);
+    setReminderMinute(m);
     setShowModal(true);
   };
 
   const handleSave = async () => {
     if (!title.trim()) return;
+    const reminderTime = `${fmt(reminderHour)}:${fmt(reminderMinute)}`;
 
     const baseData = {
       title: title.trim(),
@@ -86,32 +97,26 @@ export const HabitsScreen = () => {
       daily_target: habitType === 'counter' ? parseInt(target) || 1 : 1,
       unit: selectedUnit,
       reminder_enabled: reminderEnabled,
-      reminder_hour: reminderHour,
-      reminder_minute: reminderMinute,
+      reminder_time: reminderTime,
     };
 
     if (editingHabit) {
-      // ── EDIT MODE ──
-      // Re-schedule notification if reminder settings changed
       if (reminderEnabled) {
         const notifId = await scheduleHabitReminder(
           editingHabit.id,
           title.trim(),
-          habitType === 'counter'
-            ? `¡Meta de ${target} ${selectedUnit} hoy!`
-            : '¡Registra tu hábito de hoy!',
+          habitType === 'counter' ? `¡Meta de ${target} ${selectedUnit} hoy!` : '¡Registra tu hábito!',
           reminderHour,
           reminderMinute
         ).catch(() => editingHabit.notification_id);
-        updateHabit(editingHabit.id, { ...baseData, notification_id: notifId });
+        await updateHabit(editingHabit.id, { ...baseData, notification_id: notifId });
       } else {
         await cancelHabitReminder(editingHabit.id);
-        updateHabit(editingHabit.id, { ...baseData, notification_id: undefined });
+        await updateHabit(editingHabit.id, { ...baseData, notification_id: undefined });
       }
     } else {
-      // ── CREATE MODE ──
       const id = Date.now().toString();
-      const newHabit: Habit = {
+      const newHabit: any = {
         id,
         frequency: 'daily',
         category: 'general',
@@ -128,9 +133,8 @@ export const HabitsScreen = () => {
         ).catch(() => undefined);
         newHabit.notification_id = notifId;
       }
-      addHabit(newHabit);
+      await addHabit(newHabit);
     }
-
     setShowModal(false);
     setEditingHabit(null);
   };
@@ -143,10 +147,11 @@ export const HabitsScreen = () => {
   const toggleReminder = async (habit: Habit) => {
     const newEnabled = !habit.reminder_enabled;
     if (newEnabled) {
+      const [h, m] = (habit.reminder_time || '08:00').split(':').map(Number);
       const notifId = await scheduleHabitReminder(
         habit.id, habit.title,
         habit.type === 'counter' ? `¡Meta de ${habit.daily_target} ${habit.unit} hoy!` : '¡Registra tu hábito!',
-        habit.reminder_hour, habit.reminder_minute
+        h, m
       ).catch(() => undefined);
       updateHabit(habit.id, { reminder_enabled: true, notification_id: notifId });
     } else {
@@ -161,8 +166,6 @@ export const HabitsScreen = () => {
     <View style={{ flex: 1, backgroundColor: C.background }}>
       <SafeAreaView style={{ flex: 1 }}>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
-
-          {/* Header */}
           <Animated.View entering={FadeInDown.delay(100).duration(700)} style={styles.header}>
             <View>
               <Text style={[styles.headerSub, { color: C.textMuted }]}>GESTIÓN</Text>
@@ -173,248 +176,179 @@ export const HabitsScreen = () => {
             </TouchableOpacity>
           </Animated.View>
 
-          {/* Count Card */}
           <Animated.View entering={FadeInDown.delay(200).duration(700)}>
-            <LinearGradient colors={[C.card, C.surface]} style={[styles.countCard, { borderColor: C.border }]}>
-              <Text style={[styles.countNum, { color: C.textPrimary }]}>{habits.length}</Text>
+            <LinearGradient 
+              colors={[C.card || '#FFF', C.surface || '#FFF']} 
+              style={[styles.countCard, { borderColor: C.border, ...C.shadowStyle }]}
+            >
+              <Text style={[styles.countNum, { color: C.textPrimary }]}>{(habits || []).length}</Text>
               <View style={[styles.countDivider, { backgroundColor: C.border }]} />
               <View>
-                <Text style={[styles.countLabel, { color: C.textSecondary }]}>hábitos activos</Text>
+                <Text style={[styles.countLabel, { color: C.textSecondary }]}>Hábitos Activos</Text>
                 <Text style={[styles.countSublabel, { color: C.textMuted }]}>
-                  {habits.filter(h => h.reminder_enabled).length} con recordatorio 🔔
+                  {(habits || []).filter(h => h.reminder_enabled).length} con Recordatorio 🔔
                 </Text>
               </View>
             </LinearGradient>
           </Animated.View>
 
-          {/* Habits List */}
-          {habits.length === 0 ? (
-            <TouchableOpacity onPress={openCreate} style={[styles.empty, { borderColor: C.border }]} activeOpacity={0.7}>
-              <View style={[styles.emptyPlus, { backgroundColor: C.accentSoft }]}>
-                <Plus color={C.textDisabled} size={32} />
-              </View>
-              <Text style={[styles.emptyText, { color: C.textSecondary }]}>Crea tu primer hábito</Text>
-              <Text style={[styles.emptySubText, { color: C.textMuted }]}>Toca para empezar tu viaje</Text>
-            </TouchableOpacity>
-          ) : (
-            <View style={{ paddingHorizontal: 20, marginTop: 8, gap: 12 }}>
-              {habits.map((habit, i) => (
-                <Animated.View key={habit.id} entering={FadeInDown.delay(280 + i * 80).duration(600)}>
-                  <View style={[styles.habitRow, { backgroundColor: C.card, borderColor: C.border }]}>
-                    {/* Color Strip */}
-                    <View style={[styles.habitStrip, { backgroundColor: habit.color }]} />
-
-                    {/* Icon */}
-                    <View style={[styles.habitIconWrap, { backgroundColor: habit.color + '18' }]}>
-                      <Text style={{ fontSize: 26 }}>{habit.icon}</Text>
+          <View style={{ paddingHorizontal: 20, marginTop: 8, gap: 12 }}>
+            {(habits || []).map((habit, i) => (
+              <Animated.View key={habit.id} entering={FadeInDown.delay(280 + i * 80).duration(600)}>
+                <View style={[styles.habitRow, { backgroundColor: C.card, borderColor: C.border, ...C.shadowStyle }]}>
+                  <View style={[styles.habitStrip, { backgroundColor: habit.color }]} />
+                  <View style={[styles.habitIconWrap, { backgroundColor: habit.color + '18' }]}>
+                    <Text style={{ fontSize: 26 }}>{habit.icon}</Text>
+                  </View>
+                  <View style={styles.habitInfo}>
+                    <Text style={[styles.habitTitle, { color: C.textPrimary }]}>{habit.title}</Text>
+                    <View style={styles.habitMeta}>
+                      <View style={[styles.habitDot, { backgroundColor: habit.color }]} />
+                      <Text style={[styles.habitMetaText, { color: C.textMuted }]}>
+                        {habit.type === 'counter' ? `Meta: ${habit.daily_target} ${habit.unit}` : `Racha: ${habit.streak} días`}
+                      </Text>
                     </View>
-
-                    {/* Info */}
-                    <View style={styles.habitInfo}>
-                      <Text style={[styles.habitTitle, { color: C.textPrimary }]}>{habit.title}</Text>
-                      <View style={styles.habitMeta}>
-                        <View style={[styles.habitDot, { backgroundColor: habit.color }]} />
-                        <Text style={[styles.habitMetaText, { color: C.textMuted }]}>
-                          {habit.type === 'counter'
-                            ? `Meta: ${habit.daily_target} ${habit.unit}`
-                            : `${habit.streak} días racha`}
-                        </Text>
-                      </View>
-                      {/* Reminder toggle */}
-                      <View style={styles.reminderRow}>
-                        <Switch
-                          value={habit.reminder_enabled}
-                          onValueChange={() => toggleReminder(habit)}
-                          trackColor={{ false: C.border, true: habit.color + '60' }}
-                          thumbColor={habit.reminder_enabled ? habit.color : C.textMuted}
-                          style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
-                        />
-                        <Text style={[styles.reminderText, { color: habit.reminder_enabled ? habit.color : C.textDisabled }]}>
-                          {habit.reminder_enabled ? `🔔 ${fmt(habit.reminder_hour)}:${fmt(habit.reminder_minute)}` : 'Sin recordatorio'}
-                        </Text>
-                      </View>
-                    </View>
-
-                    {/* Actions */}
-                    <View style={styles.actions}>
-                      <TouchableOpacity onPress={() => openEdit(habit)} style={[styles.actionBtn, { backgroundColor: habit.color + '18' }]} activeOpacity={0.7}>
-                        <Pencil color={habit.color} size={15} />
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={() => handleDelete(habit)} style={[styles.actionBtn, { backgroundColor: C.dangerSoft }]} activeOpacity={0.7}>
-                        <Trash2 color={C.danger} size={15} />
-                      </TouchableOpacity>
+                    <View style={styles.reminderRow}>
+                      <Switch
+                        value={habit.reminder_enabled}
+                        onValueChange={() => toggleReminder(habit)}
+                        trackColor={{ false: C.border, true: habit.color + '60' }}
+                        thumbColor={habit.reminder_enabled ? habit.color : C.textMuted}
+                        style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
+                      />
+                      <Text style={[styles.reminderText, { color: habit.reminder_enabled ? habit.color : C.textDisabled }]}>
+                        {habit.reminder_enabled ? `🔔 ${(() => {
+                          const [h, m] = (habit.reminder_time || '08:00').split(':').map(Number);
+                          return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+                        })()}` : 'Recordatorio apagado'}
+                      </Text>
                     </View>
                   </View>
-                </Animated.View>
-              ))}
-            </View>
-          )}
+                  <View style={styles.actions}>
+                    <TouchableOpacity onPress={() => openEdit(habit)} style={[styles.actionBtn, { backgroundColor: habit.color + '18' }]} activeOpacity={0.7}>
+                      <Pencil color={habit.color} size={15} />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => handleDelete(habit)} style={[styles.actionBtn, { backgroundColor: C.dangerSoft }]} activeOpacity={0.7}>
+                      <Trash2 color={C.danger} size={15} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </Animated.View>
+            ))}
+          </View>
         </ScrollView>
       </SafeAreaView>
 
-      {/* ── Create / Edit Modal ── */}
       <Modal visible={showModal} transparent animationType="slide" onRequestClose={() => setShowModal(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
           <TouchableOpacity style={styles.modalOverlay} onPress={() => setShowModal(false)} activeOpacity={1} />
-          <ScrollView
-            style={[styles.sheet, { backgroundColor: C.surface }]}
-            contentContainerStyle={{ paddingBottom: 40 }}
-            bounces={false}
-          >
+          <ScrollView style={[styles.sheet, { backgroundColor: C.surface }]} contentContainerStyle={{ paddingBottom: 40 }} bounces={false}>
             <View style={[styles.sheetHandle, { backgroundColor: C.borderStrong }]} />
             <View style={styles.sheetHeader}>
-              <Text style={[styles.sheetTitle, { color: C.textPrimary }]}>
-                {isEditing ? 'Editar Hábito' : 'Nuevo Hábito'}
-              </Text>
-              <TouchableOpacity onPress={() => setShowModal(false)} style={[styles.closeBtn, { backgroundColor: C.card }]}>
-                <X color={C.textSecondary} size={18} />
+              <Text style={[styles.sheetTitle, { color: C.textPrimary }]}>{isEditing ? 'Editar Hábito' : 'Nuevo Hábito'}</Text>
+              <TouchableOpacity onPress={() => setShowModal(false)} style={[styles.closeBtn, { backgroundColor: C.card }]}><X color={C.textSecondary} size={18} /></TouchableOpacity>
+            </View>
+            
+            <TextInput value={title} onChangeText={setTitle} placeholder="Ej: Beber Agua" placeholderTextColor={C.textDisabled} style={[styles.input, { backgroundColor: C.card, borderColor: C.border, color: C.textPrimary }]} />
+            
+            {/* TIPO DE HABITO */}
+            <View style={styles.typeSelector}>
+              <TouchableOpacity onPress={() => setHabitType('boolean')} style={[styles.typeBtn, habitType === 'boolean' && { backgroundColor: selectedColor, borderColor: selectedColor }]}>
+                <ToggleLeft color={habitType === 'boolean' ? '#FFF' : C.textMuted} size={20} />
+                <Text style={[styles.typeBtnText, { color: habitType === 'boolean' ? '#FFF' : C.textMuted }]}>Simple</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setHabitType('counter')} style={[styles.typeBtn, habitType === 'counter' && { backgroundColor: selectedColor, borderColor: selectedColor }]}>
+                <Hash color={habitType === 'counter' ? '#FFF' : C.textMuted} size={20} />
+                <Text style={[styles.typeBtnText, { color: habitType === 'counter' ? '#FFF' : C.textMuted }]}>Contador</Text>
               </TouchableOpacity>
             </View>
 
-            {/* Type Selector — only for new habits */}
-            {!isEditing && (
-              <>
-                <Text style={[styles.inputLabel, { color: C.textMuted }]}>TIPO DE HÁBITO</Text>
-                <View style={styles.typeRow}>
-                  {([
-                    { value: 'boolean', label: 'Completable', sub: 'Hecho / No hecho', Icon: ToggleLeft, accent: C.accent },
-                    { value: 'counter', label: 'Contador', sub: 'Ej: 8 vasos', Icon: Hash, accent: C.success },
-                  ] as const).map(({ value, label, sub, Icon, accent }) => (
-                    <TouchableOpacity
-                      key={value}
-                      onPress={() => setHabitType(value)}
-                      style={[styles.typeBtn, { borderColor: habitType === value ? accent : C.border, backgroundColor: habitType === value ? accent + '12' : C.card }]}
-                      activeOpacity={0.7}
-                    >
-                      <Icon color={habitType === value ? accent : C.textMuted} size={20} />
-                      <Text style={[styles.typeBtnText, { color: habitType === value ? accent : C.textSecondary }]}>{label}</Text>
-                      <Text style={[styles.typeBtnSub, { color: C.textMuted }]}>{sub}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </>
-            )}
-
-            {/* Name */}
-            <Text style={[styles.inputLabel, { color: C.textMuted }]}>NOMBRE</Text>
-            <TextInput
-              value={title}
-              onChangeText={setTitle}
-              placeholder="Ej: Tomar agua"
-              placeholderTextColor={C.textDisabled}
-              style={[styles.input, { backgroundColor: C.card, borderColor: C.border, color: C.textPrimary }]}
-            />
-
-            {/* Counter target */}
             {habitType === 'counter' && (
-              <>
-                <Text style={[styles.inputLabel, { color: C.textMuted }]}>META DIARIA</Text>
-                <View style={styles.counterRow}>
-                  <TextInput
-                    value={target}
-                    onChangeText={setTarget}
-                    keyboardType="numeric"
-                    maxLength={3}
-                    style={[styles.input, { flex: 1, marginBottom: 0, textAlign: 'center', fontSize: 28, fontWeight: '800', color: C.success, backgroundColor: C.card, borderColor: C.border }]}
-                  />
-                  <Text style={[styles.counterX, { color: C.textMuted }]}>×</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 2 }}>
-                    <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 4 }}>
-                      {UNITS.map(u => (
-                        <TouchableOpacity key={u} onPress={() => setSelectedUnit(u)}
-                          style={[styles.unitBtn, { backgroundColor: selectedUnit === u ? C.successSoft : C.card, borderColor: selectedUnit === u ? C.success : C.border }]}>
-                          <Text style={[styles.unitText, { color: selectedUnit === u ? C.success : C.textMuted }]}>{u}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
+              <Animated.View entering={FadeInDown} style={[styles.counterConfig, { backgroundColor: C.card, borderColor: C.border }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.configLabel, { color: C.textSecondary }]}>Meta Diaria</Text>
+                  <TextInput value={target} onChangeText={setTarget} keyboardType="numeric" style={[styles.targetInput, { color: C.textPrimary }]} />
+                </View>
+                <View style={{ width: 1, height: 40, backgroundColor: C.border, marginHorizontal: 15 }} />
+                <View style={{ flex: 1.5 }}>
+                  <Text style={[styles.configLabel, { color: C.textSecondary }]}>Unidad</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    {UNITS.map(u => (
+                      <TouchableOpacity key={u} onPress={() => setSelectedUnit(u)} style={[styles.unitChip, selectedUnit === u && { backgroundColor: selectedColor, borderColor: selectedColor }]}>
+                        <Text style={[styles.unitChipText, { color: selectedUnit === u ? '#FFF' : C.textMuted }]}>{u}</Text>
+                      </TouchableOpacity>
+                    ))}
                   </ScrollView>
                 </View>
-                <View style={[styles.previewPill, { backgroundColor: C.successSoft, borderColor: C.success + '40', marginTop: 12 }]}>
-                  <Text style={[styles.previewText, { color: C.success }]}>Meta: {target || '0'} {selectedUnit} por día</Text>
-                </View>
-              </>
+              </Animated.View>
             )}
 
-            {/* Icon */}
-            <Text style={[styles.inputLabel, { color: C.textMuted, marginTop: 24 }]}>ÍCONO</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 24 }}>
-              <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: 4 }}>
+            {/* ICONOS */}
+            <Text style={[styles.sectionLabel, { color: C.textMuted, marginTop: 10 }]}>ICONO</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
+              <View style={styles.iconGrid}>
                 {ICONS.map(icon => (
-                  <TouchableOpacity key={icon} onPress={() => setSelectedIcon(icon)}
-                    style={[styles.iconBtn, { backgroundColor: selectedIcon === icon ? C.borderStrong : C.card, borderWidth: selectedIcon === icon ? 1.5 : 0, borderColor: C.textSecondary }]}>
+                  <TouchableOpacity key={icon} onPress={() => setSelectedIcon(icon)} style={[styles.iconBtn, selectedIcon === icon && { backgroundColor: selectedColor + '25', borderColor: selectedColor }]}>
                     <Text style={{ fontSize: 24 }}>{icon}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
             </ScrollView>
 
-            {/* Color */}
-            <Text style={[styles.inputLabel, { color: C.textMuted }]}>COLOR</Text>
-            <View style={[styles.colorRow, { marginBottom: 24 }]}>
-              {COLORS.map(color => (
-                <TouchableOpacity key={color} onPress={() => setSelectedColor(color)}
-                  style={[styles.colorDot, { backgroundColor: color }, selectedColor === color && styles.colorDotActive]} />
-              ))}
-            </View>
+            {/* COLORES */}
+            <Text style={[styles.sectionLabel, { color: C.textMuted }]}>COLOR</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
+              <View style={styles.colorGrid}>
+                {COLORS.map(color => (
+                  <TouchableOpacity key={color} onPress={() => setSelectedColor(color)} style={[styles.colorBtn, { backgroundColor: color }, selectedColor === color && { borderWidth: 3, borderColor: '#FFF' }]} />
+                ))}
+              </View>
+            </ScrollView>
 
-            {/* Reminder */}
+            {/* RECORDATORIO */}
             <View style={[styles.reminderSection, { backgroundColor: C.card, borderColor: C.border }]}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: reminderEnabled ? 16 : 0 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                  {reminderEnabled ? <Bell color={selectedColor} size={20} /> : <BellOff color={C.textMuted} size={20} />}
+                  <Bell color={reminderEnabled ? selectedColor : C.textMuted} size={20} />
                   <View>
                     <Text style={[styles.reminderTitle, { color: C.textPrimary }]}>Recordatorio diario</Text>
-                    <Text style={[styles.reminderSub, { color: C.textMuted }]}>
-                      {reminderEnabled ? `Todos los días a las ${fmt(reminderHour)}:${fmt(reminderMinute)}` : 'Desactivado'}
-                    </Text>
+                    <Text style={[styles.reminderSub, { color: C.textMuted }]}>{reminderEnabled ? `Suena a las ${displayHour}:${fmt(reminderMinute)} ${isPM ? 'PM' : 'AM'}` : 'Desactivado'}</Text>
                   </View>
                 </View>
-                <Switch value={reminderEnabled} onValueChange={setReminderEnabled}
-                  trackColor={{ false: C.border, true: selectedColor + '60' }}
-                  thumbColor={reminderEnabled ? selectedColor : C.textMuted} />
+                <Switch value={reminderEnabled} onValueChange={setReminderEnabled} trackColor={{ false: C.border, true: selectedColor + '60' }} thumbColor={reminderEnabled ? selectedColor : C.textMuted} />
               </View>
 
               {reminderEnabled && (
                 <View>
-                  <Text style={[styles.inputLabel, { color: C.textMuted, marginBottom: 10 }]}>HORA</Text>
+                  <View style={styles.ampmContainer}>
+                    <TouchableOpacity onPress={() => toggleAMPM(false)} style={[styles.ampmBtn, { backgroundColor: !isPM ? selectedColor : C.background, borderColor: !isPM ? selectedColor : C.border }]}><Text style={{ color: !isPM ? '#FFF' : C.textMuted, fontWeight: '700' }}>AM</Text></TouchableOpacity>
+                    <TouchableOpacity onPress={() => toggleAMPM(true)} style={[styles.ampmBtn, { backgroundColor: isPM ? selectedColor : C.background, borderColor: isPM ? selectedColor : C.border }]}><Text style={{ color: isPM ? '#FFF' : C.textMuted, fontWeight: '700' }}>PM</Text></TouchableOpacity>
+                  </View>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                     <View style={{ flexDirection: 'row', gap: 8 }}>
-                      {HOURS.map(h => (
-                        <TouchableOpacity key={h} onPress={() => setReminderHour(h)}
-                          style={[styles.timeBtn, { backgroundColor: reminderHour === h ? selectedColor : C.background, borderColor: reminderHour === h ? selectedColor : C.border }]}>
-                          <Text style={[styles.timeBtnText, { color: reminderHour === h ? '#FFF' : C.textMuted }]}>{fmt(h)}</Text>
+                      {HOURS_12.map(h => (
+                        <TouchableOpacity key={h} onPress={() => handleHourSelect(h)} style={[styles.timeBtn, { backgroundColor: displayHour === h ? selectedColor : C.background, borderColor: displayHour === h ? selectedColor : C.border }]}><Text style={[styles.timeBtnText, { color: displayHour === h ? '#FFF' : C.textMuted }]}>{h}</Text></TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      {MINUTES_ALL.map(m => (
+                        <TouchableOpacity 
+                          key={m} 
+                          onPress={() => setReminderMinute(m)} 
+                          style={[styles.timeBtn, { backgroundColor: reminderMinute === m ? selectedColor : C.background, borderColor: reminderMinute === m ? selectedColor : C.border }]}
+                        >
+                          <Text style={[styles.timeBtnText, { color: reminderMinute === m ? '#FFF' : C.textMuted }]}>{fmt(m)}</Text>
                         </TouchableOpacity>
                       ))}
                     </View>
                   </ScrollView>
-
-                  <Text style={[styles.inputLabel, { color: C.textMuted, marginTop: 14, marginBottom: 10 }]}>MINUTO</Text>
-                  <View style={{ flexDirection: 'row', gap: 10 }}>
-                    {MINUTES.map(m => (
-                      <TouchableOpacity key={m} onPress={() => setReminderMinute(m)}
-                        style={[styles.timeBtn, { backgroundColor: reminderMinute === m ? selectedColor : C.background, borderColor: reminderMinute === m ? selectedColor : C.border }]}>
-                        <Text style={[styles.timeBtnText, { color: reminderMinute === m ? '#FFF' : C.textMuted }]}>{fmt(m)}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-
-                  <View style={[styles.timePill, { backgroundColor: selectedColor + '15', borderColor: selectedColor + '40' }]}>
-                    <Bell color={selectedColor} size={14} />
-                    <Text style={[styles.timePillText, { color: selectedColor }]}>
-                      Notificación todos los días a las {fmt(reminderHour)}:{fmt(reminderMinute)}
-                    </Text>
-                  </View>
                 </View>
               )}
             </View>
 
-            <View style={{ marginTop: 20 }}>
-              <GritButton
-                label={isEditing ? 'Guardar Cambios' : 'Crear Hábito'}
-                onPress={handleSave}
-                accentColor={selectedColor}
-              />
-            </View>
+            <GritButton label={isEditing ? 'Guardar Cambios' : 'Crear Hábito'} onPress={handleSave} accentColor={selectedColor} />
           </ScrollView>
         </KeyboardAvoidingView>
       </Modal>
@@ -432,11 +366,7 @@ const styles = StyleSheet.create({
   countDivider: { width: 1, height: 44, marginHorizontal: 18 },
   countLabel: { fontSize: 14, fontWeight: '600' },
   countSublabel: { fontSize: 12, marginTop: 3 },
-  empty: { marginHorizontal: 20, borderRadius: 28, padding: 44, borderWidth: 1.5, borderStyle: 'dashed', alignItems: 'center', marginTop: 8 },
-  emptyPlus: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
-  emptyText: { fontSize: 16, fontWeight: '600' },
-  emptySubText: { fontSize: 13, marginTop: 6 },
-  habitRow: { flexDirection: 'row', alignItems: 'center', borderRadius: 22, padding: 14, borderWidth: 1, overflow: 'hidden' },
+  habitRow: { flexDirection: 'row', alignItems: 'center', borderRadius: 22, padding: 14, borderWidth: 1, overflow: 'hidden', marginBottom: 12 },
   habitStrip: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 3 },
   habitIconWrap: { width: 52, height: 52, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginRight: 12, marginLeft: 8 },
   habitInfo: { flex: 1 },
@@ -454,27 +384,25 @@ const styles = StyleSheet.create({
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 },
   sheetTitle: { fontSize: 22, fontWeight: '800' },
   closeBtn: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
-  inputLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 2.5, marginBottom: 10 },
-  typeRow: { flexDirection: 'row', gap: 12, marginBottom: 24 },
-  typeBtn: { flex: 1, borderRadius: 18, padding: 16, borderWidth: 1.5, alignItems: 'center', gap: 6 },
+  input: { borderWidth: 1, borderRadius: 18, paddingHorizontal: 18, paddingVertical: 14, fontSize: 16, marginBottom: 16 },
+  typeSelector: { flexDirection: 'row', gap: 10, marginBottom: 16 },
+  typeBtn: { flex: 1, height: 48, borderRadius: 14, borderWidth: 1, borderColor: '#eee', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   typeBtnText: { fontSize: 14, fontWeight: '700' },
-  typeBtnSub: { fontSize: 11, textAlign: 'center' },
-  input: { borderWidth: 1, borderRadius: 18, paddingHorizontal: 18, paddingVertical: 14, fontSize: 16, marginBottom: 24 },
-  counterRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 4 },
-  counterX: { fontSize: 22, fontWeight: '300' },
-  unitBtn: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, borderWidth: 1 },
-  unitText: { fontSize: 13, fontWeight: '600' },
-  previewPill: { alignSelf: 'flex-start', borderRadius: 100, paddingHorizontal: 14, paddingVertical: 6, borderWidth: 1 },
-  previewText: { fontSize: 12, fontWeight: '700' },
-  iconBtn: { width: 52, height: 52, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  colorRow: { flexDirection: 'row', gap: 12, flexWrap: 'wrap' },
-  colorDot: { width: 34, height: 34, borderRadius: 17 },
-  colorDotActive: { borderWidth: 3, borderColor: '#FFFFFF', transform: [{ scale: 1.2 }] },
-  reminderSection: { borderRadius: 24, padding: 18, borderWidth: 1 },
+  counterConfig: { flexDirection: 'row', alignItems: 'center', padding: 16, borderRadius: 18, borderWidth: 1, marginBottom: 16 },
+  configLabel: { fontSize: 10, fontWeight: '800', marginBottom: 4, letterSpacing: 1 },
+  targetInput: { fontSize: 22, fontWeight: '800', padding: 0 },
+  unitChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: '#eee', marginRight: 6 },
+  unitChipText: { fontSize: 11, fontWeight: '700' },
+  sectionLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 2, marginBottom: 12 },
+  iconGrid: { flexDirection: 'row', gap: 10 },
+  iconBtn: { width: 54, height: 54, borderRadius: 14, borderWidth: 1, borderColor: '#eee', alignItems: 'center', justifyContent: 'center' },
+  colorGrid: { flexDirection: 'row', gap: 10 },
+  colorBtn: { width: 36, height: 36, borderRadius: 18 },
+  reminderSection: { borderRadius: 24, padding: 18, borderWidth: 1, marginBottom: 24 },
   reminderTitle: { fontSize: 15, fontWeight: '700' },
   reminderSub: { fontSize: 12, marginTop: 1 },
+  ampmContainer: { flexDirection: 'row', gap: 10, marginBottom: 12 },
+  ampmBtn: { flex: 1, height: 40, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   timeBtn: { width: 44, height: 38, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   timeBtnText: { fontSize: 13, fontWeight: '700' },
-  timePill: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 14, padding: 12, marginTop: 14, borderWidth: 1 },
-  timePillText: { fontSize: 12, fontWeight: '600', flex: 1 },
 });
