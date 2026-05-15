@@ -6,7 +6,18 @@ import { useHabitStore } from '../store/useHabitStore';
 import { useSoberStore } from '../store/useSoberStore';
 import { useTheme } from '../hooks/useTheme';
 import { useIsFocused } from '@react-navigation/native';
-import { Flame, Star, Award, TrendingUp, Shield, Zap, History, Trophy } from 'lucide-react-native';
+import { 
+  Flame, Star, Award, TrendingUp, Shield, Zap, History, Trophy, 
+  ChevronRight, Sparkles, Brain, Target
+} from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
+import { Modal, TouchableOpacity } from 'react-native';
+import * as Haptics from 'expo-haptics';
+import { useUserStore } from '../store/useUserStore';
+import { ConfettiCelebration, ConfettiRef } from '../components/ConfettiCelebration';
+import { useRef, useState } from 'react';
+import { ZoomIn } from 'react-native-reanimated';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -39,12 +50,59 @@ const GritGrid = ({ history, color, C }: any) => {
     </View>
   );
 };
+const WeeklyOracleModal = ({ visible, report, onHide, C, onClaimXP }: any) => {
+  if (!report) return null;
+  
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <View style={styles.modalOverlay}>
+        <BlurView intensity={30} style={StyleSheet.absoluteFill} tint="dark" />
+        <Animated.View entering={ZoomIn.duration(800)} style={[styles.oracleCard, { backgroundColor: C.card, borderColor: C.warning }]}>
+          <LinearGradient colors={[C.warning + '20', 'transparent']} style={styles.oracleGradient} />
+          
+          <Sparkles color={C.warning} size={40} style={{ marginBottom: 15 }} />
+          <Text style={[styles.oracleTitle, { color: C.textPrimary }]}>EL ORÁCULO HA HABLADO</Text>
+          <Text style={[styles.oracleSub, { color: C.textSecondary }]}>Tu desempeño en los últimos 7 días:</Text>
+          
+          <View style={styles.gradeContainer}>
+            <Animated.Text entering={ZoomIn.delay(400)} style={[styles.gradeText, { color: C.warning }]}>{report.grade}</Animated.Text>
+            <Text style={[styles.gradeLabel, { color: C.textMuted }]}>{report.label.toUpperCase()}</Text>
+          </View>
+          
+          <View style={styles.oracleStats}>
+             <View style={styles.oracleStatItem}>
+                <Text style={[styles.oracleStatValue, { color: C.textPrimary }]}>{Math.round(report.average)}%</Text>
+                <Text style={[styles.oracleStatLabel, { color: C.textMuted }]}>Consistencia</Text>
+             </View>
+             <View style={{ width: 1, height: 30, backgroundColor: C.border }} />
+             <View style={styles.oracleStatItem}>
+                <Text style={[styles.oracleStatValue, { color: C.warning }]}>+{report.xpReward}</Text>
+                <Text style={[styles.oracleStatLabel, { color: C.textMuted }]}>XP Bonus</Text>
+             </View>
+          </View>
+          
+          <TouchableOpacity 
+            onPress={onClaimXP} 
+            style={[styles.claimBtn, { backgroundColor: C.textPrimary }]}
+          >
+            <Text style={{ color: C.card, fontWeight: '900', letterSpacing: 1 }}>RECLAMAR RECOMPENSA</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+};
 
 export const StatsScreen = () => {
   const C = useTheme();
   const isFocused = useIsFocused();
-  const { habits, fetchHabits } = useHabitStore();
+  const { habits, fetchHabits, getWeeklyReport } = useHabitStore();
   const { missions } = useSoberStore();
+  const { addXP } = useUserStore();
+  const confettiRef = useRef<ConfettiRef>(null);
+
+  const [showOracle, setShowOracle] = useState(false);
+  const [weeklyReport, setWeeklyReport] = useState<any>(null);
 
   const fadeAnim = useSharedValue(0);
   const slideAnim = useSharedValue(20);
@@ -63,6 +121,22 @@ export const StatsScreen = () => {
       fetchHabits();
     }
   }, [isFocused]);
+
+  const handleOpenOracle = () => {
+    const report = getWeeklyReport();
+    setWeeklyReport(report);
+    setShowOracle(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+  };
+
+  const handleClaimXP = async () => {
+    if (weeklyReport) {
+      await addXP(weeklyReport.xpReward);
+      confettiRef.current?.trigger();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+    setShowOracle(false);
+  };
 
   const weeklyStats = useMemo(() => {
     const days = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
@@ -93,6 +167,35 @@ export const StatsScreen = () => {
               <Text style={[styles.headerSub, { color: C.textMuted }]}>TU PROGRESO</Text>
               <Text style={[styles.headerTitle, { color: C.textPrimary }]}>Grit Stats</Text>
             </View>
+
+            <ConfettiCelebration ref={confettiRef} />
+            <WeeklyOracleModal 
+              visible={showOracle} 
+              report={weeklyReport} 
+              onHide={() => setShowOracle(false)} 
+              onClaimXP={handleClaimXP}
+              C={C} 
+            />
+
+            {/* BOTÓN ORÁCULO */}
+            <TouchableOpacity onPress={handleOpenOracle} activeOpacity={0.8} style={{ marginHorizontal: 20, marginBottom: 25 }}>
+              <LinearGradient 
+                colors={[C.warning, '#FFD60A']} 
+                start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                style={styles.oracleTrigger}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <View style={styles.oracleIconCircle}>
+                    <Brain color="#000" size={20} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.oracleTriggerTitle}>EL ORÁCULO SEMANAL</Text>
+                    <Text style={styles.oracleTriggerSub}>Analiza tu disciplina y reclama XP</Text>
+                  </View>
+                  <ChevronRight color="#000" size={20} opacity={0.5} />
+                </View>
+              </LinearGradient>
+            </TouchableOpacity>
 
             {/* SECCIÓN ABSTINENCIA (NUEVA) */}
             {missions.length > 0 && (
@@ -218,4 +321,21 @@ const styles = StyleSheet.create({
   gridLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 1, marginBottom: 8, paddingHorizontal: 2 },
   gridContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   gridSquare: { width: (SCREEN_WIDTH - 110) / 10, height: (SCREEN_WIDTH - 110) / 10, borderRadius: 4 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center' },
+  oracleCard: { width: SCREEN_WIDTH * 0.85, borderRadius: 32, padding: 30, alignItems: 'center', borderWidth: 1, overflow: 'hidden' },
+  oracleGradient: { ...StyleSheet.absoluteFillObject },
+  oracleTitle: { fontSize: 18, fontWeight: '900', letterSpacing: 2, marginBottom: 10 },
+  oracleSub: { fontSize: 14, textAlign: 'center', marginBottom: 25 },
+  gradeContainer: { alignItems: 'center', marginBottom: 25 },
+  gradeText: { fontSize: 100, fontWeight: '900', lineHeight: 110 },
+  gradeLabel: { fontSize: 12, fontWeight: '800', letterSpacing: 1 },
+  oracleStats: { flexDirection: 'row', alignItems: 'center', gap: 30, marginBottom: 35 },
+  oracleStatItem: { alignItems: 'center' },
+  oracleStatValue: { fontSize: 20, fontWeight: '800' },
+  oracleStatLabel: { fontSize: 10, fontWeight: '700' },
+  claimBtn: { width: '100%', height: 56, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  oracleTrigger: { borderRadius: 20, padding: 20, elevation: 5, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10 },
+  oracleIconCircle: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.1)', alignItems: 'center', justifyContent: 'center' },
+  oracleTriggerTitle: { color: '#000', fontWeight: '900', fontSize: 14, letterSpacing: 0.5 },
+  oracleTriggerSub: { color: '#000', fontSize: 12, opacity: 0.7 },
 });

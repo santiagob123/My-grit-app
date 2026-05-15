@@ -3,7 +3,7 @@ import { Platform, View, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { LayoutDashboard, BarChart3, Shield, User, Calendar, Target } from 'lucide-react-native';
+import { LayoutDashboard, BarChart3, Shield, User, Calendar, Target, Trophy, Users } from 'lucide-react-native';
 import { BlurView } from 'expo-blur';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, ZoomIn } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
@@ -16,7 +16,9 @@ import { HabitsScreen } from '../screens/HabitsScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { StatsScreen } from '../screens/StatsScreen';
 import { SoberScreen } from '../screens/SoberScreen';
+import { LeaderboardScreen } from '../screens/LeaderboardScreen';
 import { LoginScreen } from '../screens/LoginScreen';
+import { CommunityScreen } from '../screens/CommunityScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -111,6 +113,14 @@ const TabNavigator = () => {
         options={{ 
           tabBarIcon: ({ color, focused }) => <AnimatedIcon Icon={Shield} color={color} focused={focused} />,
           title: 'Abstinencia'
+        }} 
+      />
+      <Tab.Screen 
+        name="Tribu" 
+        component={CommunityScreen} 
+        options={{ 
+          tabBarIcon: ({ color, focused }) => <AnimatedIcon Icon={Users} color={color} focused={focused} />,
+          title: 'Tribu'
         }} 
       />
       <Tab.Screen 

@@ -11,6 +11,7 @@ interface NotificationState {
   toggleNotifications: (value: boolean) => Promise<void>;
   updateMorningTime: (hour: number, minute: number) => Promise<void>;
   syncNotifications: () => Promise<void>;
+  checkStreakStatus: (allCompleted: boolean) => Promise<void>;
 }
 
 export const useNotificationStore = create<NotificationState>()(
@@ -48,7 +49,20 @@ export const useNotificationStore = create<NotificationState>()(
         const { morningTime, eveningTime } = get();
         
         await NotificationsService.scheduleSmartMorningReminder(morningTime.hour, morningTime.minute);
-        await NotificationsService.scheduleStreakAtRiskReminder(eveningTime.hour, eveningTime.minute);
+        // El recordatorio de racha se maneja dinámicamente por checkStreakStatus
+      },
+
+      checkStreakStatus: async (allCompleted: boolean) => {
+        if (!get().isEnabled) return;
+        
+        if (allCompleted) {
+          // Si todo está hecho, cancelamos el aviso de peligro para hoy
+          await NotificationsService.cancelStreakDangerReminder();
+        } else {
+          // Si falta algo, aseguramos que el aviso esté programado
+          const { eveningTime } = get();
+          await NotificationsService.scheduleStreakAtRiskReminder(eveningTime.hour, eveningTime.minute);
+        }
       }
     }),
     {

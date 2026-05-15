@@ -101,6 +101,10 @@ export async function scheduleStreakAtRiskReminder(hour = 20, minute = 0) {
   });
 }
 
+export async function cancelStreakDangerReminder() {
+  await Notifications.cancelScheduledNotificationAsync('streak-danger');
+}
+
 export async function scheduleHabitReminder(
   habitId: string,
   title: string,

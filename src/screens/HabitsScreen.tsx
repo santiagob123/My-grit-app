@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useHabitStore, Habit } from '../store/useHabitStore';
-import { Plus, X, Trash2, ToggleLeft, Hash, Bell, BellOff, Pencil } from 'lucide-react-native';
+import { Plus, X, Trash2, ToggleLeft, Hash, Bell, BellOff, Pencil, Sun, Moon, CloudSun, Clock } from 'lucide-react-native';
 import { GritButton } from '../components/GritButton';
 import { useTheme } from '../hooks/useTheme';
 import { scheduleHabitReminder, cancelHabitReminder } from '../services/notifications';
@@ -40,6 +40,26 @@ export const HabitsScreen = () => {
   
   const [reminderHour, setReminderHour] = useState(8);
   const [reminderMinute, setReminderMinute] = useState(0);
+  const [notes, setNotes] = useState('');
+  const [scheduledDays, setScheduledDays] = useState<number[]>([]);
+  const [timeBlock, setTimeBlock] = useState<'morning' | 'afternoon' | 'evening' | 'anytime'>('anytime');
+
+  const DAYS = [
+    { label: 'D', value: 0 },
+    { label: 'L', value: 1 },
+    { label: 'M', value: 2 },
+    { label: 'X', value: 3 },
+    { label: 'J', value: 4 },
+    { label: 'V', value: 5 },
+    { label: 'S', value: 6 },
+  ];
+
+  const BLOCKS = [
+    { label: 'Mañana', value: 'morning', icon: Sun },
+    { label: 'Tarde', value: 'afternoon', icon: CloudSun },
+    { label: 'Noche', value: 'evening', icon: Moon },
+    { label: 'Todo el día', value: 'anytime', icon: Clock },
+  ];
 
   const isPM = reminderHour >= 12;
   const displayHour = reminderHour % 12 || 12;
@@ -67,6 +87,9 @@ export const HabitsScreen = () => {
     setReminderEnabled(false);
     setReminderHour(8);
     setReminderMinute(0);
+    setNotes('');
+    setScheduledDays([]);
+    setTimeBlock('anytime');
     setShowModal(true);
   };
 
@@ -82,6 +105,9 @@ export const HabitsScreen = () => {
     const [h, m] = (habit.reminder_time || '08:00').split(':').map(Number);
     setReminderHour(h);
     setReminderMinute(m);
+    setNotes(habit.notes || '');
+    setScheduledDays(habit.scheduled_days || []);
+    setTimeBlock(habit.time_block || 'anytime');
     setShowModal(true);
   };
 
@@ -98,6 +124,9 @@ export const HabitsScreen = () => {
       unit: selectedUnit,
       reminder_enabled: reminderEnabled,
       reminder_time: reminderTime,
+      notes: notes.trim(),
+      scheduled_days: scheduledDays,
+      time_block: timeBlock,
     };
 
     if (editingHabit) {
@@ -205,9 +234,13 @@ export const HabitsScreen = () => {
                     <View style={styles.habitMeta}>
                       <View style={[styles.habitDot, { backgroundColor: habit.color }]} />
                       <Text style={[styles.habitMetaText, { color: C.textMuted }]}>
-                        {habit.type === 'counter' ? `Meta: ${habit.daily_target} ${habit.unit}` : `Racha: ${habit.streak} días`}
                       </Text>
                     </View>
+                    {habit.notes ? (
+                      <Text style={[styles.habitNoteSnippet, { color: C.textMuted }]} numberOfLines={1}>
+                        " {habit.notes} "
+                      </Text>
+                    ) : null}
                     <View style={styles.reminderRow}>
                       <Switch
                         value={habit.reminder_enabled}
@@ -251,6 +284,17 @@ export const HabitsScreen = () => {
             
             <TextInput value={title} onChangeText={setTitle} placeholder="Ej: Beber Agua" placeholderTextColor={C.textDisabled} style={[styles.input, { backgroundColor: C.card, borderColor: C.border, color: C.textPrimary }]} />
             
+            <Text style={[styles.sectionLabel, { color: C.textMuted }]}>REFLEXIÓN / NOTA MOTIVADORA</Text>
+            <TextInput 
+              value={notes} 
+              onChangeText={setNotes} 
+              placeholder="¿Por qué es importante este hábito?" 
+              placeholderTextColor={C.textDisabled} 
+              multiline 
+              numberOfLines={3}
+              style={[styles.input, styles.textArea, { backgroundColor: C.card, borderColor: C.border, color: C.textPrimary }]} 
+            />
+            
             {/* TIPO DE HABITO */}
             <View style={styles.typeSelector}>
               <TouchableOpacity onPress={() => setHabitType('boolean')} style={[styles.typeBtn, habitType === 'boolean' && { backgroundColor: selectedColor, borderColor: selectedColor }]}>
@@ -282,6 +326,48 @@ export const HabitsScreen = () => {
                 </View>
               </Animated.View>
             )}
+
+            {/* PROGRAMACIÓN SEMANAL */}
+            <Text style={[styles.sectionLabel, { color: C.textMuted, marginTop: 10 }]}>PROGRAMACIÓN SEMANAL</Text>
+            <View style={styles.daysGrid}>
+              {DAYS.map((day) => {
+                const isSelected = scheduledDays.includes(day.value);
+                return (
+                  <TouchableOpacity 
+                    key={day.value} 
+                    onPress={() => {
+                      if (isSelected) setScheduledDays(scheduledDays.filter(d => d !== day.value));
+                      else setScheduledDays([...scheduledDays, day.value]);
+                    }}
+                    style={[styles.dayBtn, { backgroundColor: isSelected ? selectedColor : C.card, borderColor: isSelected ? selectedColor : C.border }]}
+                  >
+                    <Text style={[styles.dayBtnText, { color: isSelected ? '#FFF' : C.textSecondary }]}>{day.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={[styles.dayHint, { color: C.textMuted }]}>
+              {scheduledDays.length === 0 ? 'Todos los días' : `Activo ${scheduledDays.length} días a la semana`}
+            </Text>
+
+            {/* BLOQUE DE TIEMPO (RUTINA) */}
+            <Text style={[styles.sectionLabel, { color: C.textMuted, marginTop: 20 }]}>RUTINA (BLOQUE DE TIEMPO)</Text>
+            <View style={styles.blockGrid}>
+              {BLOCKS.map((block) => {
+                const isSelected = timeBlock === block.value;
+                const Icon = block.icon;
+                return (
+                  <TouchableOpacity 
+                    key={block.value} 
+                    onPress={() => setTimeBlock(block.value as any)}
+                    style={[styles.blockBtn, { backgroundColor: isSelected ? selectedColor : C.card, borderColor: isSelected ? selectedColor : C.border }]}
+                  >
+                    <Icon size={16} color={isSelected ? '#FFF' : C.textMuted} />
+                    <Text style={[styles.blockBtnText, { color: isSelected ? '#FFF' : C.textSecondary }]}>{block.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
 
             {/* ICONOS */}
             <Text style={[styles.sectionLabel, { color: C.textMuted, marginTop: 10 }]}>ICONO</Text>
@@ -405,4 +491,13 @@ const styles = StyleSheet.create({
   ampmBtn: { flex: 1, height: 40, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   timeBtn: { width: 44, height: 38, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   timeBtnText: { fontSize: 13, fontWeight: '700' },
+  habitNoteSnippet: { fontSize: 11, fontStyle: 'italic', marginTop: 4, opacity: 0.8 },
+  textArea: { height: 100, textAlignVertical: 'top', paddingTop: 12 },
+  daysGrid: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  dayBtn: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  dayBtnText: { fontSize: 14, fontWeight: '800' },
+  dayHint: { fontSize: 11, marginBottom: 16, fontWeight: '600' },
+  blockGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 },
+  blockBtn: { flex: 1, minWidth: '45%', height: 44, borderRadius: 12, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  blockBtnText: { fontSize: 12, fontWeight: '700' },
 });

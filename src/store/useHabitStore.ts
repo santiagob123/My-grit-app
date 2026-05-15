@@ -3,6 +3,9 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../api/supabase';
 import { Alert } from 'react-native';
+import { useNotificationStore } from './useNotificationStore';
+import { useBadgeStore } from './useBadgeStore';
+import { useUserStore } from './useUserStore';
 
 export interface Habit {
   id: string;
@@ -20,6 +23,9 @@ export interface Habit {
   reminder_enabled: boolean;
   reminder_time: string;
   sort_order?: number; 
+  notes?: string;
+  scheduled_days?: number[]; // 0=Sun, 1=Mon, ..., 6=Sat. Empty = all days.
+  time_block?: 'morning' | 'afternoon' | 'evening' | 'anytime';
 }
 
 interface HabitState {
@@ -36,6 +42,13 @@ interface HabitState {
   rescueStreak: (id: string) => Promise<void>;
   reorderHabits: (newHabits: Habit[]) => Promise<void>;
   updateHabit: (id: string, updates: Partial<Habit>) => Promise<void>;
+  getWeeklyReport: () => { 
+    days: { date: string, percent: number }[], 
+    average: number, 
+    grade: string,
+    label: string,
+    xpReward: number
+  };
 }
 
 export const useHabitStore = create<HabitState>()(
@@ -75,6 +88,10 @@ export const useHabitStore = create<HabitState>()(
 
             set({ habits: mergedHabits });
             get().validateStreaks();
+            
+            // Notificaciones inteligentes
+            const allDone = mergedHabits.length > 0 && mergedHabits.every(h => h.completed_today);
+            useNotificationStore.getState().checkStreakStatus(allDone);
           }
         } finally {
           set({ isLoading: false });
@@ -133,7 +150,9 @@ export const useHabitStore = create<HabitState>()(
           reminder_time: newHabit.reminder_time || '09:00',
           user_id: session.user.id,
           streak: 0,
-          current_count: 0
+          current_count: 0,
+          scheduled_days: newHabit.scheduled_days || [],
+          time_block: newHabit.time_block || 'anytime'
         };
 
         const { data, error } = await supabase.from('habits').insert(habitData).select().single();
@@ -152,7 +171,7 @@ export const useHabitStore = create<HabitState>()(
 
       updateHabit: async (id, updates) => {
         const cleanUpdates: any = {};
-        const validFields = ['title', 'icon', 'color', 'type', 'daily_target', 'unit', 'reminder_enabled', 'reminder_time', 'streak', 'current_count', 'history'];
+        const validFields = ['title', 'icon', 'color', 'type', 'daily_target', 'unit', 'reminder_enabled', 'reminder_time', 'streak', 'current_count', 'history', 'notes', 'scheduled_days', 'time_block'];
         Object.keys(updates).forEach(key => {
           if (validFields.includes(key)) cleanUpdates[key] = (updates as any)[key];
         });
@@ -177,6 +196,18 @@ export const useHabitStore = create<HabitState>()(
         const newStreak = newStatus ? habit.streak + 1 : Math.max(0, habit.streak - 1);
 
         await get().updateHabit(id, { completed_today: newStatus, streak: newStreak, history: newHistory } as any);
+        
+        // Notificaciones inteligentes
+        const updatedHabits = get().habits;
+        const allDone = updatedHabits.length > 0 && updatedHabits.every(h => h.completed_today);
+        useNotificationStore.getState().checkStreakStatus(allDone);
+
+        // Sistema de Logros
+        useBadgeStore.getState().checkBadges({
+          streaks: updatedHabits.map(h => h.streak),
+          totalCompletions: updatedHabits.reduce((acc, h) => acc + (h.history?.length || 0), 0),
+          level: useUserStore.getState().level
+        });
       },
 
       incrementCount: async (id) => {
@@ -195,6 +226,18 @@ export const useHabitStore = create<HabitState>()(
           updates.streak = habit.streak + 1;
         }
         await get().updateHabit(id, updates);
+
+        // Notificaciones inteligentes
+        const updatedHabits = get().habits;
+        const allDone = updatedHabits.length > 0 && updatedHabits.every(h => h.completed_today);
+        useNotificationStore.getState().checkStreakStatus(allDone);
+
+        // Sistema de Logros
+        useBadgeStore.getState().checkBadges({
+          streaks: updatedHabits.map(h => h.streak),
+          totalCompletions: updatedHabits.reduce((acc, h) => acc + (h.history?.length || 0), 0),
+          level: useUserStore.getState().level
+        });
       },
 
       decrementCount: async (id) => {
@@ -213,6 +256,18 @@ export const useHabitStore = create<HabitState>()(
           updates.streak = Math.max(0, habit.streak - 1);
         }
         await get().updateHabit(id, updates);
+
+        // Notificaciones inteligentes
+        const updatedHabits = get().habits;
+        const allDone = updatedHabits.length > 0 && updatedHabits.every(h => h.completed_today);
+        useNotificationStore.getState().checkStreakStatus(allDone);
+
+        // Sistema de Logros
+        useBadgeStore.getState().checkBadges({
+          streaks: updatedHabits.map(h => h.streak),
+          totalCompletions: updatedHabits.reduce((acc, h) => acc + (h.history?.length || 0), 0),
+          level: useUserStore.getState().level
+        });
       },
 
       resetHabits: async () => {
@@ -231,6 +286,45 @@ export const useHabitStore = create<HabitState>()(
           set((state) => ({ habits: (state.habits || []).filter(h => h.id !== id) }));
         }
       },
+      getWeeklyReport: () => {
+        const habits = get().habits;
+        if (habits.length === 0) return { days: [], average: 0, grade: 'C', label: 'Sin datos', xpReward: 0 };
+
+        const days = [];
+        let totalPercent = 0;
+        const today = new Date();
+
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date();
+          d.setDate(today.getDate() - i);
+          const dateStr = d.toISOString().split('T')[0];
+          
+          const scheduledForDay = habits.filter(h => 
+            !h.scheduled_days || h.scheduled_days.length === 0 || h.scheduled_days.includes(d.getDay())
+          );
+          
+          if (scheduledForDay.length === 0) {
+            days.push({ date: dateStr, percent: 100 });
+            totalPercent += 100;
+          } else {
+            const completed = scheduledForDay.filter(h => (h.history || []).includes(dateStr)).length;
+            const percent = (completed / scheduledForDay.length) * 100;
+            days.push({ date: dateStr, percent });
+            totalPercent += percent;
+          }
+        }
+
+        const average = totalPercent / 7;
+        let grade = 'C';
+        let label = 'Iniciado';
+        let xpReward = 50;
+
+        if (average >= 95) { grade = 'S'; label = 'Guerrero Divino'; xpReward = 500; }
+        else if (average >= 80) { grade = 'A'; label = 'Maestro'; xpReward = 250; }
+        else if (average >= 60) { grade = 'B'; label = 'Soldado'; xpReward = 125; }
+
+        return { days, average, grade, label, xpReward };
+      }
     }),
     {
       name: 'grit-habits-storage-v7', // VOLVEMOS A V7 PARA RECUPERAR DATOS
